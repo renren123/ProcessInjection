@@ -39,474 +39,6 @@
 //		also adds error handling, so the end user knows if something went wrong.
 /***************************************************************************************************/
 
-void Inject(HANDLE hProcess, const char* dllname, const char* funcname)
-{
-	//------------------------------------------//
-	// Function variables.						//
-	//------------------------------------------//
-
-		// Main DLL we will need to load
-	HMODULE kernel32 = NULL;
-
-	// Main functions we will need to import
-	FARPROC loadlibrary = NULL;
-	FARPROC getprocaddress = NULL;
-	FARPROC exitprocess = NULL;
-	FARPROC exitthread = NULL;
-	FARPROC freelibraryandexitthread = NULL;
-
-	// The workspace we will build the codecave on locally
-	LPBYTE workspace = NULL;
-	DWORD workspaceIndex = 0;
-
-	// The memory in the process we write to
-	LPVOID codecaveAddress = NULL;
-	DWORD dwCodecaveAddress = 0;
-
-	// std::strings we have to write into the process
-	char injectDllName[MAX_PATH + 1] = { 0 };
-	char injectFuncName[MAX_PATH + 1] = { 0 };
-	char injectError0[MAX_PATH + 1] = { 0 };
-	char injectError1[MAX_PATH + 1] = { 0 };
-	char injectError2[MAX_PATH + 1] = { 0 };
-	char user32Name[MAX_PATH + 1] = { 0 };
-	char msgboxName[MAX_PATH + 1] = { 0 };
-
-	// Placeholder addresses to use the std::strings
-	DWORD user32NameAddr = 0;
-	DWORD user32Addr = 0;
-	DWORD msgboxNameAddr = 0;
-	DWORD msgboxAddr = 0;
-	DWORD dllAddr = 0;
-	DWORD dllNameAddr = 0;
-	DWORD funcNameAddr = 0;
-	DWORD error0Addr = 0;
-	DWORD error1Addr = 0;
-	DWORD error2Addr = 0;
-
-	// Where the codecave execution should begin at
-	DWORD codecaveExecAddr = 0;
-
-	// Handle to the thread we create in the process
-	HANDLE hThread = NULL;
-
-	// Temp variables
-	DWORD dwTmpSize = 0;
-
-	// Old protection on page we are writing to in the process and the bytes written
-	DWORD oldProtect = 0;
-	SIZE_T bytesRet = 0;
-
-	//------------------------------------------//
-	// Variable initialization.					//
-	//------------------------------------------//
-
-		// Get the address of the main DLL
-	kernel32 = LoadLibrary("kernel32.dll");
-
-	// Get our functions
-	loadlibrary = GetProcAddress(kernel32, "LoadLibraryA");
-	getprocaddress = GetProcAddress(kernel32, "GetProcAddress");
-	exitprocess = GetProcAddress(kernel32, "ExitProcess");
-	exitthread = GetProcAddress(kernel32, "ExitThread");
-	freelibraryandexitthread = GetProcAddress(kernel32, "FreeLibraryAndExitThread");
-
-	// This section will cause compiler warnings on VS8, 
-	// you can upgrade the functions or ignore them
-
-		// Build names
-	_snprintf(injectDllName, MAX_PATH, "%s", dllname);
-	_snprintf(injectFuncName, MAX_PATH, "%s", funcname);
-	_snprintf(user32Name, MAX_PATH, "user32.dll");
-	_snprintf(msgboxName, MAX_PATH, "MessageBoxA");
-
-	// Build error messages
-	_snprintf(injectError0, MAX_PATH, "Error");
-	_snprintf(injectError1, MAX_PATH, "Could not load the dll: %s", injectDllName);
-	_snprintf(injectError2, MAX_PATH, "Could not load the function: %s", injectFuncName);
-
-	// Create the workspace
-	workspace = (LPBYTE)HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, 1024);
-
-	// Allocate space for the codecave in the process
-	codecaveAddress = VirtualAllocEx(hProcess, 0, 1024, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
-	dwCodecaveAddress = PtrToUlong(codecaveAddress);
-
-	// Note there is no error checking done above for any functions that return a pointer/handle.
-	// I could have added them, but it'd just add more messiness to the code and not provide any real
-	// benefit. It's up to you though in your final code if you want it there or not.
-
-	//------------------------------------------//
-	// Data and std::string writing.					//
-	//------------------------------------------//
-
-		// Write out the address for the user32 dll address
-	user32Addr = workspaceIndex + dwCodecaveAddress;
-	dwTmpSize = 0;
-	memcpy(workspace + workspaceIndex, &dwTmpSize, 4);
-	workspaceIndex += 4;
-
-	// Write out the address for the MessageBoxA address
-	msgboxAddr = workspaceIndex + dwCodecaveAddress;
-	dwTmpSize = 0;
-	memcpy(workspace + workspaceIndex, &dwTmpSize, 4);
-	workspaceIndex += 4;
-
-	// Write out the address for the injected DLL's module
-	dllAddr = workspaceIndex + dwCodecaveAddress;
-	dwTmpSize = 0;
-	memcpy(workspace + workspaceIndex, &dwTmpSize, 4);
-	workspaceIndex += 4;
-
-	// User32 Dll Name
-	user32NameAddr = workspaceIndex + dwCodecaveAddress;
-	dwTmpSize = (DWORD)strlen(user32Name) + 1;
-	memcpy(workspace + workspaceIndex, user32Name, dwTmpSize);
-	workspaceIndex += dwTmpSize;
-
-	// MessageBoxA name
-	msgboxNameAddr = workspaceIndex + dwCodecaveAddress;
-	dwTmpSize = (DWORD)strlen(msgboxName) + 1;
-	memcpy(workspace + workspaceIndex, msgboxName, dwTmpSize);
-	workspaceIndex += dwTmpSize;
-
-	// Dll Name
-	dllNameAddr = workspaceIndex + dwCodecaveAddress;
-	dwTmpSize = (DWORD)strlen(injectDllName) + 1;
-	memcpy(workspace + workspaceIndex, injectDllName, dwTmpSize);
-	workspaceIndex += dwTmpSize;
-
-	// Function Name
-	funcNameAddr = workspaceIndex + dwCodecaveAddress;
-	dwTmpSize = (DWORD)strlen(injectFuncName) + 1;
-	memcpy(workspace + workspaceIndex, injectFuncName, dwTmpSize);
-	workspaceIndex += dwTmpSize;
-
-	// Error Message 1
-	error0Addr = workspaceIndex + dwCodecaveAddress;
-	dwTmpSize = (DWORD)strlen(injectError0) + 1;
-	memcpy(workspace + workspaceIndex, injectError0, dwTmpSize);
-	workspaceIndex += dwTmpSize;
-
-	// Error Message 2
-	error1Addr = workspaceIndex + dwCodecaveAddress;
-	dwTmpSize = (DWORD)strlen(injectError1) + 1;
-	memcpy(workspace + workspaceIndex, injectError1, dwTmpSize);
-	workspaceIndex += dwTmpSize;
-
-	// Error Message 3
-	error2Addr = workspaceIndex + dwCodecaveAddress;
-	dwTmpSize = (DWORD)strlen(injectError2) + 1;
-	memcpy(workspace + workspaceIndex, injectError2, dwTmpSize);
-	workspaceIndex += dwTmpSize;
-
-	// Pad a few INT3s after std::string data is written for seperation
-	workspace[workspaceIndex++] = 0xCC;
-	workspace[workspaceIndex++] = 0xCC;
-	workspace[workspaceIndex++] = 0xCC;
-
-	// Store where the codecave execution should begin
-	codecaveExecAddr = workspaceIndex + dwCodecaveAddress;
-
-	// For debugging - infinite loop, attach onto process and step over
-		//workspace[workspaceIndex++] = 0xEB;
-		//workspace[workspaceIndex++] = 0xFE;
-
-	//------------------------------------------//
-	// User32.dll loading.						//
-	//------------------------------------------//
-
-	// User32 DLL Loading
-		// PUSH 0x00000000 - Push the address of the DLL name to use in LoadLibraryA
-	workspace[workspaceIndex++] = 0x68;
-	memcpy(workspace + workspaceIndex, &user32NameAddr, 4);
-	workspaceIndex += 4;
-
-	// MOV EAX, ADDRESS - Move the address of LoadLibraryA into EAX
-	workspace[workspaceIndex++] = 0xB8;
-	memcpy(workspace + workspaceIndex, &loadlibrary, 4);
-	workspaceIndex += 4;
-
-	// CALL EAX - Call LoadLibraryA
-	workspace[workspaceIndex++] = 0xFF;
-	workspace[workspaceIndex++] = 0xD0;
-
-	// MessageBoxA Loading
-		// PUSH 0x000000 - Push the address of the function name to load
-	workspace[workspaceIndex++] = 0x68;
-	memcpy(workspace + workspaceIndex, &msgboxNameAddr, 4);
-	workspaceIndex += 4;
-
-	// Push EAX, module to use in GetProcAddress
-	workspace[workspaceIndex++] = 0x50;
-
-	// MOV EAX, ADDRESS - Move the address of GetProcAddress into EAX
-	workspace[workspaceIndex++] = 0xB8;
-	memcpy(workspace + workspaceIndex, &getprocaddress, 4);
-	workspaceIndex += 4;
-
-	// CALL EAX - Call GetProcAddress
-	workspace[workspaceIndex++] = 0xFF;
-	workspace[workspaceIndex++] = 0xD0;
-
-	// MOV [ADDRESS], EAX - Save the address to our variable
-	workspace[workspaceIndex++] = 0xA3;
-	memcpy(workspace + workspaceIndex, &msgboxAddr, 4);
-	workspaceIndex += 4;
-
-	//------------------------------------------//
-	// Injected dll loading.					//
-	//------------------------------------------//
-
-	/*
-		// This is the way the following assembly code would look like in C/C++
-
-		// Load the injected DLL into this process
-		HMODULE h = LoadLibrary("mydll.dll");
-		if(!h)
-		{
-			MessageBox(0, "Could not load the dll: mydll.dll", "Error", MB_ICONERROR);
-			ExitProcess(0);
-		}
-
-		// Get the address of the export function
-		FARPROC p = GetProcAddress(h, "Initialize");
-		if(!p)
-		{
-			MessageBox(0, "Could not load the function: Initialize", "Error", MB_ICONERROR);
-			ExitProcess(0);
-		}
-
-		// So we do not need a function pointer interface
-		__asm call p
-
-		// Exit the thread so the loader continues
-		ExitThread(0);
-	*/
-
-	// DLL Loading
-		// PUSH 0x00000000 - Push the address of the DLL name to use in LoadLibraryA
-	workspace[workspaceIndex++] = 0x68;
-	memcpy(workspace + workspaceIndex, &dllNameAddr, 4);
-	workspaceIndex += 4;
-
-	// MOV EAX, ADDRESS - Move the address of LoadLibraryA into EAX
-	workspace[workspaceIndex++] = 0xB8;
-	memcpy(workspace + workspaceIndex, &loadlibrary, 4);
-	workspaceIndex += 4;
-
-	// CALL EAX - Call LoadLibraryA
-	workspace[workspaceIndex++] = 0xFF;
-	workspace[workspaceIndex++] = 0xD0;
-
-	// Error Checking
-		// CMP EAX, 0
-	workspace[workspaceIndex++] = 0x83;
-	workspace[workspaceIndex++] = 0xF8;
-	workspace[workspaceIndex++] = 0x00;
-
-	// JNZ EIP + 0x1E to skip over eror code
-	workspace[workspaceIndex++] = 0x75;
-	workspace[workspaceIndex++] = 0x1E;
-
-	// Error Code 1
-		// MessageBox
-			// PUSH 0x10 (MB_ICONHAND)
-	workspace[workspaceIndex++] = 0x6A;
-	workspace[workspaceIndex++] = 0x10;
-
-	// PUSH 0x000000 - Push the address of the MessageBox title
-	workspace[workspaceIndex++] = 0x68;
-	memcpy(workspace + workspaceIndex, &error0Addr, 4);
-	workspaceIndex += 4;
-
-	// PUSH 0x000000 - Push the address of the MessageBox message
-	workspace[workspaceIndex++] = 0x68;
-	memcpy(workspace + workspaceIndex, &error1Addr, 4);
-	workspaceIndex += 4;
-
-	// Push 0
-	workspace[workspaceIndex++] = 0x6A;
-	workspace[workspaceIndex++] = 0x00;
-
-	// MOV EAX, [ADDRESS] - Move the address of MessageBoxA into EAX
-	workspace[workspaceIndex++] = 0xA1;
-	memcpy(workspace + workspaceIndex, &msgboxAddr, 4);
-	workspaceIndex += 4;
-
-	// CALL EAX - Call MessageBoxA
-	workspace[workspaceIndex++] = 0xFF;
-	workspace[workspaceIndex++] = 0xD0;
-
-	// ExitProcess
-		// Push 0
-	workspace[workspaceIndex++] = 0x6A;
-	workspace[workspaceIndex++] = 0x00;
-
-	// MOV EAX, ADDRESS - Move the address of ExitProcess into EAX
-	workspace[workspaceIndex++] = 0xB8;
-	memcpy(workspace + workspaceIndex, &exitprocess, 4);
-	workspaceIndex += 4;
-
-	// CALL EAX - Call MessageBoxA
-	workspace[workspaceIndex++] = 0xFF;
-	workspace[workspaceIndex++] = 0xD0;
-
-	//	Now we have the address of the injected DLL, so save the handle
-
-		// MOV [ADDRESS], EAX - Save the address to our variable
-	workspace[workspaceIndex++] = 0xA3;
-	memcpy(workspace + workspaceIndex, &dllAddr, 4);
-	workspaceIndex += 4;
-
-	// Load the initilize function from it
-
-		// PUSH 0x000000 - Push the address of the function name to load
-	workspace[workspaceIndex++] = 0x68;
-	memcpy(workspace + workspaceIndex, &funcNameAddr, 4);
-	workspaceIndex += 4;
-
-	// Push EAX, module to use in GetProcAddress
-	workspace[workspaceIndex++] = 0x50;
-
-	// MOV EAX, ADDRESS - Move the address of GetProcAddress into EAX
-	workspace[workspaceIndex++] = 0xB8;
-	memcpy(workspace + workspaceIndex, &getprocaddress, 4);
-	workspaceIndex += 4;
-
-	// CALL EAX - Call GetProcAddress
-	workspace[workspaceIndex++] = 0xFF;
-	workspace[workspaceIndex++] = 0xD0;
-
-	// Error Checking
-		// CMP EAX, 0
-	workspace[workspaceIndex++] = 0x83;
-	workspace[workspaceIndex++] = 0xF8;
-	workspace[workspaceIndex++] = 0x00;
-
-	// JNZ EIP + 0x1C to skip eror code
-	workspace[workspaceIndex++] = 0x75;
-	workspace[workspaceIndex++] = 0x1C;
-
-	// Error Code 2
-		// MessageBox
-			// PUSH 0x10 (MB_ICONHAND)
-	workspace[workspaceIndex++] = 0x6A;
-	workspace[workspaceIndex++] = 0x10;
-
-	// PUSH 0x000000 - Push the address of the MessageBox title
-	workspace[workspaceIndex++] = 0x68;
-	memcpy(workspace + workspaceIndex, &error0Addr, 4);
-	workspaceIndex += 4;
-
-	// PUSH 0x000000 - Push the address of the MessageBox message
-	workspace[workspaceIndex++] = 0x68;
-	memcpy(workspace + workspaceIndex, &error2Addr, 4);
-	workspaceIndex += 4;
-
-	// Push 0
-	workspace[workspaceIndex++] = 0x6A;
-	workspace[workspaceIndex++] = 0x00;
-
-	// MOV EAX, ADDRESS - Move the address of MessageBoxA into EAX
-	workspace[workspaceIndex++] = 0xA1;
-	memcpy(workspace + workspaceIndex, &msgboxAddr, 4);
-	workspaceIndex += 4;
-
-	// CALL EAX - Call MessageBoxA
-	workspace[workspaceIndex++] = 0xFF;
-	workspace[workspaceIndex++] = 0xD0;
-
-	// ExitProcess
-		// Push 0
-	workspace[workspaceIndex++] = 0x6A;
-	workspace[workspaceIndex++] = 0x00;
-
-	// MOV EAX, ADDRESS - Move the address of ExitProcess into EAX
-	workspace[workspaceIndex++] = 0xB8;
-	memcpy(workspace + workspaceIndex, &exitprocess, 4);
-	workspaceIndex += 4;
-
-	//	Now that we have the address of the function, we cam call it, 
-	// if there was an error, the messagebox would be called as well.
-
-		// CALL EAX - Call ExitProcess -or- the Initialize function
-	workspace[workspaceIndex++] = 0xFF;
-	workspace[workspaceIndex++] = 0xD0;
-
-	// If we get here, the Initialize function has been called, 
-	// so it's time to close this thread and optionally unload the DLL.
-
-//------------------------------------------//
-// Exiting from the injected dll.			//
-//------------------------------------------//
-
-// Call ExitThread to leave the DLL loaded
-#if 1
-	// Push 0 (exit code)
-	workspace[workspaceIndex++] = 0x6A;
-	workspace[workspaceIndex++] = 0x00;
-
-	// MOV EAX, ADDRESS - Move the address of ExitThread into EAX
-	workspace[workspaceIndex++] = 0xB8;
-	memcpy(workspace + workspaceIndex, &exitthread, 4);
-	workspaceIndex += 4;
-
-	// CALL EAX - Call ExitThread
-	workspace[workspaceIndex++] = 0xFF;
-	workspace[workspaceIndex++] = 0xD0;
-#endif
-
-	// Call FreeLibraryAndExitThread to unload DLL
-#if 0
-	// Push 0 (exit code)
-	workspace[workspaceIndex++] = 0x6A;
-	workspace[workspaceIndex++] = 0x00;
-
-	// PUSH [0x000000] - Push the address of the DLL module to unload
-	workspace[workspaceIndex++] = 0xFF;
-	workspace[workspaceIndex++] = 0x35;
-	memcpy(workspace + workspaceIndex, &dllAddr, 4);
-	workspaceIndex += 4;
-
-	// MOV EAX, ADDRESS - Move the address of FreeLibraryAndExitThread into EAX
-	workspace[workspaceIndex++] = 0xB8;
-	memcpy(workspace + workspaceIndex, &freelibraryandexitthread, 4);
-	workspaceIndex += 4;
-
-	// CALL EAX - Call FreeLibraryAndExitThread
-	workspace[workspaceIndex++] = 0xFF;
-	workspace[workspaceIndex++] = 0xD0;
-#endif
-
-	//------------------------------------------//
-	// Code injection and cleanup.				//
-	//------------------------------------------//
-
-		// Change page protection so we can write executable code
-	VirtualProtectEx(hProcess, codecaveAddress, workspaceIndex, PAGE_EXECUTE_READWRITE, &oldProtect);
-
-	// Write out the patch
-	WriteProcessMemory(hProcess, codecaveAddress, workspace, workspaceIndex, &bytesRet);
-
-	// Restore page protection
-	VirtualProtectEx(hProcess, codecaveAddress, workspaceIndex, oldProtect, &oldProtect);
-
-	// Make sure our changes are written right away
-	FlushInstructionCache(hProcess, codecaveAddress, workspaceIndex);
-
-	// Free the workspace memory
-	HeapFree(GetProcessHeap(), 0, workspace);
-
-	// Execute the thread now and wait for it to exit, note we execute where the code starts, and not the codecave start
-	// (since we wrote std::strings at the start of the codecave) -- NOTE: void* used for VC6 compatibility instead of UlongToPtr
-	hThread = CreateRemoteThread(hProcess, NULL, 0, (LPTHREAD_START_ROUTINE)((void*)codecaveExecAddr), 0, 0, NULL);
-	WaitForSingleObject(hThread, INFINITE);
-
-	// Free the memory in the process that we allocated
-	VirtualFreeEx(hProcess, codecaveAddress, 0, MEM_RELEASE);
-}
-
 // 提升进程访问权限
 bool enableDebugPriv()
 {
@@ -535,7 +67,7 @@ bool enableDebugPriv()
 	return true;
 }
 // 根据进程名称得到进程ID,如果有多个运行实例的话，返回第一个枚举到的进程的ID
-DWORD processNameToId(LPCTSTR lpszProcessName)
+DWORD ProcessNameToId(LPCTSTR lpszProcessName)
 {
 	HANDLE hSnapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
 	PROCESSENTRY32 pe;
@@ -624,6 +156,7 @@ SOCKET GetSOCKET(PCSTR addr,u_short port)
 	}
 	return sockClient;
 }
+/*dllName是DLL的名字，szExeName是可执行程序的名字*/
 int InjectProcess(std::string dllName, std::string szExeName)
 {
 	/*int a1 = system("@echo off");
@@ -648,6 +181,7 @@ int InjectProcess(std::string dllName, std::string szExeName)
 		szDll[i] = szDllTemp[i];
 	}
 	szDll[i] = '\0';
+
 	// 提升进程访问权限
 	if (enableDebugPriv() == false)
 	{
@@ -657,7 +191,7 @@ int InjectProcess(std::string dllName, std::string szExeName)
 	std::cout << "Injecting process !" << std::endl;
 
 	//std::cin >> szExeName;
-	DWORD dwProcessId = processNameToId(szExeName.data());
+	DWORD dwProcessId = ProcessNameToId(szExeName.data());
 	if (dwProcessId == 0)
 	{
 		std::cout << "GetLastError:" << GetLastError() <<"\tprocessNameToId"<< std::endl;
@@ -670,6 +204,13 @@ int InjectProcess(std::string dllName, std::string szExeName)
 	}
 
 	//根据进程ID得到进程句柄
+	/*
+	OpenProcess：
+	1、想拥有的该进程访问权限，PROCESS_ALL_ACCESS  //所有能获得的权限
+	2、表示所得到的进程句柄是否可以被继承
+	3、被打开进程的PID
+	返回值为指定进程的句柄。
+	*/
 	HANDLE hTargetProcess = OpenProcess(PROCESS_ALL_ACCESS, TRUE, dwProcessId);
 
 	if (!hTargetProcess)
@@ -686,58 +227,50 @@ int InjectProcess(std::string dllName, std::string szExeName)
 	// 在宿主进程中为线程体开辟一块存储区域
 	// 在这里需要注意MEM_COMMIT内存非配类型以及PAGE_EXECUTE_READWRITE内存保护类型
 	// 其具体含义请参考MSDN中关于VirtualAllocEx函数的说明。
-	void* pRemoteThread = VirtualAllocEx(hTargetProcess,
+	/*
+	VirtualAllocEx：
+	1、HANDLE hProcess：需要在其中分配空间的进程的句柄.
+	2、LPVOID lpAddress：想要获取的地址区域.这个参数为NULL，那么这个函数会自己决定如何分配..
+	3、SIZE_T dwSize：要分配的内存大小.(单位byte字节)
+	4、DWORD flAllocationType：内存分配的类型
+	5、DWORD flProtect：内存页保护.
+	VirtualAlloc在调用进程的地址空间内分配内存，而VirtualAllocEx则可以指定进程。
+	*/
+	void* pRemoteThreadMem = VirtualAllocEx(hTargetProcess,
 		0,
-		sizeof(szDll),
+		bufferSize,//这个地方到底分配多大内存还是个谜？？？？？？？？？？
 		MEM_COMMIT, PAGE_EXECUTE_READWRITE);
-	if (!pRemoteThread)
+	if (!pRemoteThreadMem)
 	{
 		std::cout << "GetLastError:" << GetLastError()<<"\tVirtualAllocEx" << std::endl;
-		/*MessageBox(NULL,
-			"Alloc memory in target process failed !",
-			"notice",
-			MB_ICONINFORMATION | MB_OK
-		);*/
 		return 0;
 	}
-	// 设置需要注入的DLL名称
-
-	//memset(szDll, 0, 256);
-	//strcpy(szDll, "C:\\Users\\13643\\source\\repos\\ProcessInjection\\Debug\\TestDll.dll");
-	// 拷贝注入DLL内容到宿主空间
+	// 改写目标进程的一段内存
 	if (!WriteProcessMemory(hTargetProcess,
-		pRemoteThread,
-		(LPVOID)szDll,
-		sizeof(szDll),
-		0))
+		pRemoteThreadMem,				//lpBaseAddress：要写入的起始地址
+		(LPVOID)szDllTemp.data(),	//lpBuffer：写入的缓存区
+		(SIZE_T)szDllTemp.length(),	//nSize：要写入缓存区的大小
+		0)							//LPDWORD lpNumberOfBytesWritten ：这个是返回实际写入的字节。
+		)
 	{
-		std::cout << "GetLastError:" << GetLastError()<<"\tWriteProcessMemory" << std::endl;
-		/*MessageBox(NULL,
-			"Write data to target process failed !",
-			"Notice",
-			MB_ICONINFORMATION | MB_OK
-		);*/
+		std::cout << "InjectProcess->WriteProcessMemory->GetLastError:" << GetLastError()<< std::endl;
 		return 0;
 	}
 
-	LPVOID pFunc = LoadLibraryA;
+	//LPVOID pFunc = LoadLibraryA;
 	//在宿主进程中创建线程
-	HANDLE hRemoteThread = CreateRemoteThread(hTargetProcess,
-		NULL,
-		0,
-		(LPTHREAD_START_ROUTINE)pFunc,
-		pRemoteThread,
-		0,
-		&dwWriteBytes);
+	HANDLE hRemoteThread = CreateRemoteThread(
+		hTargetProcess,
+		NULL,		//lpThreadAttributes：指向线程的安全描述结构体的指针，一般设置为NULL，表示使用默认的安全级别
+		0,			//dwStackSize：线程堆栈大小，一般设置为0，表示使用默认的大小，一般为1M
+		(LPTHREAD_START_ROUTINE)LoadLibraryA,	//lpStartAddress：线程函数的地址
+		pRemoteThreadMem,	//lpParameter：线程参数
+		0,			//dwCreationFlags：线程的创建方式
+		&dwWriteBytes);		//lpThreadId：输出参数，记录创建的远程线程的ID
 
 	if (!hRemoteThread)
 	{
-		std::cout << "GetLastError:" << GetLastError()<<"\tCreateRemoteThread" << std::endl;
-		/*MessageBox(NULL,
-			"Create remote thread failed !",
-			"Notice",
-			MB_ICONINFORMATION | MB_OK
-		);*/
+		std::cout << "InjectProcess->CreateRemoteThread->GetLastError:" << GetLastError()<< std::endl;
 		return 0;
 	}
 	return 1;
@@ -804,7 +337,7 @@ DWORD ClientThreadMethod(LPVOID pParam)
 		{
 			std::cout << "Client:信息同步错误！->ClientThreadMethod" << std::endl;
 			Sleep(1000);
-			int result = InjectProcess("TestDll.dll", "explorer.exe");
+			int result = InjectProcess("TestDll.dll", "notepad.exe");
 			sockClient = GetSOCKET("127.0.0.1", 6000);
 			indexNumber = 1;
 			readyState = 1;

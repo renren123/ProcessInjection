@@ -101,7 +101,6 @@ int CharStrToInt(char* str)
 }
 SOCKET GetSOCKET(PCSTR addr,u_short port)
 {
-	std::cout << "ClientThreadMethod" << std::endl;
 	//第一步：加载socket库函数
 	//**********************************************************
 	WORD wVersionRequested;

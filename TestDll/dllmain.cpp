@@ -41,7 +41,9 @@ BOOL WakeupProc(const char* strFilepath)
 	PROCESS_INFORMATION procStruct;
 	memset(&StartInfo, 0, sizeof(STARTUPINFO));
 	StartInfo.cb = sizeof(STARTUPINFO);
-	BOOL bSuc = ::CreateProcess(strFilepath, NULL, NULL, NULL, FALSE, NORMAL_PRIORITY_CLASS, NULL, NULL, &StartInfo, &procStruct);
+	//LPTSTR lpCommandLine="sfd";
+	char isEjectMessage[] = "1";
+	BOOL bSuc = ::CreateProcess(strFilepath, isEjectMessage, NULL, NULL, FALSE, NORMAL_PRIORITY_CLASS, NULL, NULL, &StartInfo, &procStruct);
 	if (!bSuc) {
 		LPVOID lpMsgBuf;
 		FormatMessage(FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS, NULL, GetLastError(), MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT), (LPTSTR)&lpMsgBuf, 0, NULL);
@@ -187,7 +189,7 @@ DWORD WINAPI ServerThreadMethod(LPVOID pParam)
 
 DWORD __stdcall ServerClientState(LPVOID lpParam)
 {
-	int mod = 100000;
+	int mod = 100;
 	int indexNumber = 0;
 	int readyState = 1;
 	MyData * socketThread = (MyData *)lpParam;
@@ -217,8 +219,9 @@ DWORD __stdcall ServerClientState(LPVOID lpParam)
 			if (cnt > 0)
 			{
 				//正常处理数据
-				CString  m_str(recvBuf);
-				//printf("%s\n", recvBuf);
+				//CString  m_str(recvBuf);
+				//MessageBox(NULL, m_str, L"信息", MB_ICONINFORMATION);
+
 				int recvNumber = CharStrToInt(recvBuf);
 				if (recvNumber != (indexNumber + 1)%mod)
 				{
@@ -227,9 +230,9 @@ DWORD __stdcall ServerClientState(LPVOID lpParam)
 
 					return 0;
 				}
-				//MessageBox(NULL, m_str, L"信息", MB_ICONINFORMATION);
+				
 				string sendMessage = std::to_string((recvNumber + 1)%mod);
-				send(socketThread->sockConn, sendMessage.data(), sendMessage.length() + 1, 0);
+				send(socketThread->sockConn, sendMessage.data(), sendMessage.length(), 0);
 			}
 			else
 			{

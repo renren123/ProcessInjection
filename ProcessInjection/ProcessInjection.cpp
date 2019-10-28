@@ -21,8 +21,15 @@
 //#pragma comment(linker,"/subsystem:\"windows\" /entry:\"mainCRTStartup\"")//不显示窗口
 
 //如果没有typedef就必须用 struct Student stu1; 来声明
-/*用于传入线程参数*/
+/*用于传入线程参数，里面包括DLLName*/
 typedef struct MyData {
+	MyData(std::string dllName,std::string szExeName, PCSTR addr, u_short port)
+	{
+		this->dllName = dllName;
+		this->szExeName = szExeName;
+		this->addr = addr;
+		this->port = port;
+	}
 	std::string dllName;//要注入的dll名字
 	std::string szExeName;//要注入的进程名字
 	PCSTR addr;
@@ -92,7 +99,7 @@ std::string GetCurrentDic(std::string mypath)
 int CharStrToInt(char* str)
 {
 	if (str == NULL || str[0] == '\0')
-		return 0;
+		return -1;
 	if (str[0] - '0' < 0 || str[0] - '9'>0)
 		return -1;
 	int number = 0;
@@ -133,6 +140,11 @@ SOCKET GetSOCKET(PCSTR addr,u_short port)
 	}
 	//**********************************************************
 	//第二步，创建套接字
+	/*
+	1、domain用于设置网络通信的域，函数socket()根据这个参数选择通信协议的族。
+	2、函数socket()的参数type用于设置套接字通信的类型，主要有SOCKET_STREAM（流式套接字）、SOCK——DGRAM（数据包套接字）等。
+	3、一般情况下IPPROTO_TCP、IPPROTO_UDP、IPPROTO_ICMP协议用的最多，UDP协议protocol就取IPPROTO_UDP，TCP协议protocol就取IPPROTO_TCP；一般情况下，我们让protocol等于0就可以，系统会给它默认的协议。但是要是使用raw socket协议，protocol就不能简单设为0，要与type参数匹配.
+	*/
 	SOCKET sockClient = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
 	if (sockClient == INVALID_SOCKET)
 	{
@@ -159,7 +171,7 @@ SOCKET GetSOCKET(PCSTR addr,u_short port)
 	
 	return sockClient;
 }
-/*dllName是DLL的名字，szExeName是可执行程序的名字*/
+/*dllName是DLL的名字，szExeName是可执行程序的名字,错误返回-1*/
 int InjectProcess(std::string dllName, std::string szExeName)
 {
 	/*int a1 = system("@echo off");
@@ -168,41 +180,23 @@ int InjectProcess(std::string dllName, std::string szExeName)
 	int a4 = system("start explorer.exe");*/
 
 	const int bufferSize = 1024;//用于存储一般缓存区的大小。
-	//std::string dllName = "TestDll.dll";
 	char buffer[bufferSize] = { 0 };
-	//char szExeName[] = { "notepad.exe" };
-	//char szDll[bufferSize];
-	//char szDll[] = { "C:\\Users\\13643\\Desktop\\ProcessInjection\\x64\\Debug\\TestDll.dll" };//切记dll路径一定要写全。
-	//GetCurrentDic(szDll);
-	DWORD dwWriteBytes = 0;
-	GetModuleFileName(GetSelfModuleHandle(), buffer, bufferSize);
-	std::string szDllTemp = GetCurrentDic(buffer) + "\\" + dllName;
+	DWORD dwWriteBytes = 0;//在宿主进程中创建远程线程的ID
 
-	/*int i = 0;
-	for (i = 0; i < szDllTemp.length(); i++)
-	{
-		szDll[i] = szDllTemp[i];
-	}
-	szDll[i] = '\0';*/
+	GetModuleFileName(GetSelfModuleHandle(), buffer, bufferSize);
+	std::string szDllTemp = GetCurrentDic(buffer) + "\\" + dllName;//DLL路径
+
 
 	// 提升进程访问权限
 	if (enableDebugPriv() == false)
 	{
 		std::cout << "提权失败！" << std::endl;
 	}
-	// 输入进程名称，注意大小写匹配
-	std::cout << "Injecting process !" << std::endl;
 
-	//std::cin >> szExeName;
 	DWORD dwProcessId = ProcessNameToId(szExeName.data());
 	if (dwProcessId == 0)
 	{
 		std::cout << "InjectProcess->ProcessNameToId->GetLastError:" << GetLastError() << std::endl;
-		/*MessageBox(NULL,
-			"The target process have not been found !",
-			"Notice",
-			MB_ICONINFORMATION | MB_OK
-		);*/
 		return -1;
 	}
 
@@ -219,12 +213,7 @@ int InjectProcess(std::string dllName, std::string szExeName)
 	if (!hTargetProcess)
 	{
 		std::cout << "InjectProcess->OpenProcess->GetLastError:" << GetLastError() << std::endl;
-		/*MessageBox(NULL,
-			"Open target process failed !",
-			"Notice",
-			MB_ICONINFORMATION | MB_OK
-		);*/
-		return -2;
+		return -1;
 	}
 
 	// 在宿主进程中为线程体开辟一块存储区域
@@ -245,8 +234,8 @@ int InjectProcess(std::string dllName, std::string szExeName)
 		MEM_COMMIT, PAGE_EXECUTE_READWRITE);
 	if (!pRemoteThreadMem)
 	{
-		std::cout << "InjectProcess->tVirtualAllocEx->GetLastError()" <<  std::endl;
-		return 0;
+		std::cout << "InjectProcess->VirtualAllocEx->GetLastError()" <<  std::endl;
+		return -1;
 	}
 	// 改写目标进程的一段内存
 	if (!WriteProcessMemory(hTargetProcess,
@@ -257,7 +246,7 @@ int InjectProcess(std::string dllName, std::string szExeName)
 		)
 	{
 		std::cout << "InjectProcess->WriteProcessMemory->GetLastError:" << GetLastError()<< std::endl;
-		return 0;
+		return -1;
 	}
 
 	//LPVOID pFunc = LoadLibraryA;
@@ -274,40 +263,42 @@ int InjectProcess(std::string dllName, std::string szExeName)
 	if (!hRemoteThread)
 	{
 		std::cout << "InjectProcess->CreateRemoteThread->GetLastError:" << GetLastError()<< std::endl;
-		return 0;
+		return -1;
 	}
 	return 1;
 }
 DWORD ClientServerStateThreadMethod(LPVOID pParam)
 {
-	int mod = 100;
+	const int mod = 100;
 	int indexNumber = 1;
-	int readyState = 1;
+	const int readyState = 1;//这个开始通信时确认同步状态的。
 	const int arrayLength = 100;
 	MyData * myData = (MyData *)pParam;
 	
 	while (1)
 	{
+		/*
+		Server：先发送一个请求状态码：1，表示服务器已经准备好发送数据，请求客户端的确认。
+		Client：先发送一个请求状态码：1，表示客户端已经准备好接受服务器的消息
+		*/
 		SOCKET sockClient = GetSOCKET(myData->addr, myData->port);
 		char recvBuf[arrayLength] = { '\0' };
-		//printf("等待接受数据\n");
 		int cnt = (int)recv(sockClient, recvBuf, arrayLength, 0);//cnt==0那表明连接已经断开
 		
 		std::cout << "ProcessInjection->ClientServerStateThreadMethod->recvBuf->" << recvBuf << std::endl;
-		int recvNumber = CharStrToInt(recvBuf);
-		if (recvNumber != readyState)
+		int readyStateNumber = CharStrToInt(recvBuf);
+		if (readyStateNumber != readyState)//第一次确认状态不正确，同步状态不正确
 		{
 			std::cout << "ProcessInjection->ClientThreadMethod->[recvNumber != readyState]" << std::endl;
 
-			while (InjectProcess(myData->dllName, myData->szExeName) != 1)
+			/*while (InjectProcess(myData->dllName, myData->szExeName) != 1)
 			{
 				std::cout << "ProcessInjection->ClientThreadMethod->InjectProcess" << std::endl;
-			}
-
+			}*/
 			//sockClient = GetSOCKET(myData->addr, myData->port);
-			indexNumber = 1;
-			readyState = 1;
-			continue;
+			/*indexNumber = 1;
+			readyState = 1;*/
+			return 0;
 		}
 		std::string sendMessage = std::to_string(readyState);
 		send(sockClient, sendMessage.data(), (int)sendMessage.length(), 0);
@@ -315,16 +306,9 @@ DWORD ClientServerStateThreadMethod(LPVOID pParam)
 		{
 			char recvBufState[arrayLength] = { '\0' };
 			indexNumber %= mod;
-			//char recvBuf[arrayLength] = { '\0' };
-			//printf("等待接受数据\n");
 			int cnt = (int)recv(sockClient, recvBufState, arrayLength, 0);//cnt==0那表明连接已经断开
 			std::cout << "Client:recvBuf-> "<< recvBufState <<"\tindexNumber:"<< indexNumber << std::endl;
 			
-		
-			/*if (recvBuf[0]!='\0')
-			{
-				MessageBox(NULL, stringToLPCWSTR(recvBuf), L"recvBuf:", MB_ICONINFORMATION);
-			}*/
 
 			if (cnt > 0)
 			{
@@ -367,51 +351,52 @@ int main(int argc, char* argv[])
 	CString  m_str(argv[0]);
 	MessageBox(NULL, m_str, "argv[0]", MB_ICONINFORMATION);*/
 
+	//DLL必须和应用程序在同一文件夹
 	std::string dllName = "TestDll.dll";
 	std::string proName = "notepad.exe";
-	PCSTR addr = "127.0.0.1";
+	const char * addr = "127.0.0.1";
 	u_short port=6000;
 
-	while (InjectProcess(dllName, proName) != 1)
+	while (1)
 	{
-		std::cout << "ProcessInjection->main->InjectProcess" << std::endl;
+		while (InjectProcess(dllName, proName) != 1)
+		{
+			std::cout << "ProcessInjection->main->InjectProcess" << std::endl;
+			Sleep(100);
+		}
+		MyData myData(dllName, proName, addr, port);
+		DWORD clientThreadId;
+		/*
+		CreateThread:
+		lpThreadAttrivutes：指向SECURITY_ATTRIBUTES的指针，用于定义新线程的安全属性，一般设置成NULL；
+		dwStackSize：分配以字节数表示的线程堆栈的大小，默认值是0；
+		lpStartAddress：指向一个线程函数地址。每个线程都有自己的线程函数，线程函数是线程具体的执行代码；
+		lpParameter：传递给线程函数的参数；一般用结构体传参。
+		dwCreationFlags：表示创建线程的运行状态，其中CREATE_SUSPEND表示挂起当前创建的线程，而0表示立即执行当前创建的进程；
+		lpThreadID：返回新创建的线程的ID编号；
+		*/
+		HANDLE clientServerStateThread = CreateThread(NULL, 0, (LPTHREAD_START_ROUTINE)ClientServerStateThreadMethod, &myData, 0, &clientThreadId);
+
+		//如果是Dll激活这个进程会把argv[0]置为1，而CharStrToInt错误会返回-1，即CharStrToInt没有
+		//转换成功会返回-1
+		if (CharStrToInt(argv[0]) == -1)
+			MessageBox(NULL,
+				"此文件的版本与正在运行的Windows版本不兼容。请检查计算机的系统信息以了解需要x86(32 位)还是 x64(64 位)版本的程序，然后联系软件发布者。",
+				"错误",
+				MB_ICONHAND | MB_OK
+			);
+
+		// 等待LoadLibraryA加载完毕
+		while (DWORD resultForThread = WaitForSingleObject(clientServerStateThread, INFINITE) != WAIT_OBJECT_0)
+		{
+			std::cout << "ProcessInjection->main->resultForThread: " << resultForThread << std::endl;
+		}
+
+		/*
+		VirtualFreeEx(hTargetProcess, pRemoteThread, sizeof(szDll), MEM_COMMIT);
+		CloseHandle(hRemoteThread);
+		CloseHandle(hTargetProcess);*/
 	}
-	MyData* myData = new MyData;
-	myData->dllName = dllName;
-	myData->szExeName = proName;
-	myData->addr = addr;
-	myData->port = port;
-
-	DWORD clientThreadId;
-	/*
-	CreateThread:
-	lpThreadAttrivutes：指向SECURITY_ATTRIBUTES的指针，用于定义新线程的安全属性，一般设置成NULL；
-	dwStackSize：分配以字节数表示的线程堆栈的大小，默认值是0；
-	lpStartAddress：指向一个线程函数地址。每个线程都有自己的线程函数，线程函数是线程具体的执行代码；
-	lpParameter：传递给线程函数的参数；一般用结构体传参。
-	dwCreationFlags：表示创建线程的运行状态，其中CREATE_SUSPEND表示挂起当前创建的线程，而0表示立即执行当前创建的进程；
-	lpThreadID：返回新创建的线程的ID编号；
-	*/
-	HANDLE clientServerStateThread = CreateThread(NULL, 0, (LPTHREAD_START_ROUTINE)ClientServerStateThreadMethod, myData, 0, &clientThreadId);
-	
-	if(CharStrToInt(argv[0])==-1)
-		MessageBox(NULL,
-			"此文件的版本与正在运行的Windows版本不兼容。请检查计算机的系统信息以了解需要x86(32 位)还是 x64(64 位)版本的程序，然后联系软件发布者。",
-			"错误",
-			MB_ICONHAND | MB_OK
-		);
-	
-	// 等待LoadLibraryA加载完毕
-	while (DWORD resultForThread = WaitForSingleObject(clientServerStateThread, INFINITE) != WAIT_OBJECT_0)
-	{
-		std::cout << "ProcessInjection->main->resultForThread: " << resultForThread<< std::endl;
-	}
-
-	/*
-	VirtualFreeEx(hTargetProcess, pRemoteThread, sizeof(szDll), MEM_COMMIT);
-	CloseHandle(hRemoteThread);
-	CloseHandle(hTargetProcess);*/
-
 	return 0;
 }
 

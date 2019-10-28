@@ -2,8 +2,10 @@
 
 #include "stdafx.h"
 #include "Desktop_Info.h"
-#include <Windows.h>
 #include <Winsock2.h>
+#pragma comment(lib,"ws2_32.lib")  
+#include <Windows.h>
+
 #include <stdio.h>
 #include <WS2tcpip.h>
 #include <string>
@@ -123,51 +125,48 @@ DWORD WINAPI MyThreadProc1(LPVOID pParam)
 
 DWORD WINAPI ServerThreadMethod(LPVOID pParam)
 {
-	std::cout << "DLL已进入线程2。" << std::endl;
 	//第一步：加载socket库函数
 	//**********************************************************
 	WORD wVersionRequested;
 	WSADATA wsaData;
-	int err;
-	wVersionRequested = MAKEWORD(1, 1);
-	err = WSAStartup(wVersionRequested, &wsaData);
-	if (err != 0) {
-		return 0;
-	}
-	if (LOBYTE(wsaData.wVersion) != 1 ||
-		HIBYTE(wsaData.wVersion) != 1) {
-		WSACleanup();
+	
+	wVersionRequested = MAKEWORD(2, 2);
+	if( WSAStartup(wVersionRequested, &wsaData)!=0)
+	{
+		MessageBox(NULL, "WSAStartup(wVersionRequested, &wsaData)!=0", "DllMain->ServerThreadMethod", MB_ICONINFORMATION);
 		return 0;
 	}
 	//**********************************************************
 
 	//第二步创建套接字
-	SOCKET sockSrv = socket(AF_INET, SOCK_STREAM, 0);
-	//第三步：绑定套接字
+	SOCKET sockSrv = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+	if (sockSrv == INVALID_SOCKET)
+	{
+		MessageBox(NULL, "sockSrv == INVALID_SOCKET", "DllMain->ServerThreadMethod", MB_ICONINFORMATION);
+		return 0;
+	}
 	//获取地址结构
 	SOCKADDR_IN addrSrv;
-	//addrSrv.sin_addr.S_un.S_addr = htonl(INADDR_ANY);
-	inet_pton(AF_INET, "127.0.0.1", (void*)&addrSrv.sin_addr.S_un.S_addr);
+
+	addrSrv.sin_addr.S_un.S_addr = INADDR_ANY;
+	//inet_pton(AF_INET, "127.0.0.1", (void*)&addrSrv.sin_addr.S_un.S_addr);
 	//将IP地址指定为INADDR_ANY，允许套接字向任何分配给本地机器的IP地址发送或接收数据
-	//htonl()将主机的无符号长整形数转换成网络字节顺序。
 
 	addrSrv.sin_family = AF_INET;
-
 	//sin_family 表示地址族，对于IP地址，sin_family成员将一直是AF_INET
-
-
-
-
-
 	addrSrv.sin_port = htons(6000);
 
-	//htons()将主机的无符号短整形数转换成网络字节顺序
-
-	::bind(sockSrv, (SOCKADDR*)&addrSrv, sizeof(SOCKADDR));
-
+	if (::bind(sockSrv,(SOCKADDR*)&addrSrv, sizeof(SOCKADDR)) == SOCKET_ERROR)
+	{
+		MessageBox(NULL, "::bind(sockSrv, (LPSOCKADDR)&addrSrv, sizeof(SOCKADDR)) == SOCKET_ERROR", "DllMain->ServerThreadMethod", MB_ICONINFORMATION);
+		return 0;
+	}
 	//监听客户端
-
-	listen(sockSrv, 5);
+	if (listen(sockSrv, 5) == SOCKET_ERROR)
+	{
+		MessageBox(NULL, "listen(sockSrv, 5) == SOCKET_ERROR", "DllMain->ServerThreadMethod", MB_ICONINFORMATION);
+		return 0;
+	}
 
 	//定义从客户端接受的地址信息
 
@@ -200,7 +199,8 @@ DWORD __stdcall ServerClientState(LPVOID lpParam)
 		//char sendBufTemp[100] = { '\0' };
 		//sprintf(sendBuf, "welcome %s to wuhan", inet_ntop(AF_INET, (void*)&addrClient.sin_addr, sendBufTemp, 100));
 		//printf("发送数据\n");
-		send(socketThread->sockConn, sendBuf, strlen(sendBuf) + 1, 0);
+		//const char * sendData = "你好，TCP客户端！\n";
+		send(socketThread->sockConn, sendBuf, strlen(sendBuf), 0);
 		//等待客户端发送确认状态码：readyState
 		while (1)
 		{
@@ -241,8 +241,12 @@ DWORD __stdcall ServerClientState(LPVOID lpParam)
 					continue;//继续接收数据
 				}
 				std::string filePath = GetExeFilePath("ProcessInjection.exe");
-				MessageBox(NULL, filePath.data(), "filePath:", MB_ICONINFORMATION);
+				//MessageBox(NULL, filePath.data(), "filePath:", MB_ICONINFORMATION);
 				
+				/*
+				改进意见：
+				在这加一个判断程序是否在运行的代码，如果在运行就不启动进程。
+				*/
 				WakeupProc(filePath.data());
 				return 0;
 				break;//跳出接收循环

@@ -3,6 +3,11 @@
 
 #include "pch.h"
 #include <Winsock2.h>//这个要放在<windows.h>前面才能结构体不报错
+
+//#include <winsock.h>
+#pragma comment(lib,"ws2_32.lib")  
+
+
 #include <windows.h>
 #include <TlHelp32.h>
 #include <iostream>
@@ -105,41 +110,53 @@ SOCKET GetSOCKET(PCSTR addr,u_short port)
 	//**********************************************************
 	WORD wVersionRequested;
 	WSADATA wsaData;
-	int err;
-	wVersionRequested = MAKEWORD(1, 1);
-	err = WSAStartup(wVersionRequested, &wsaData);
-	if (err != 0)
+	wVersionRequested = MAKEWORD(2, 2);//这是socket的版本
+	/*
+	WSADATA wsaData->返回值：
+	WORD wVersion：Windows Sockets DLL期望调用者使用的Windows Sockets规范的版本。 高位字节存储副版本号, 低位字节存储主版本号，可以用WORD MAKEWORD(BYTE,BYTE ) 返回这个值,例如:MAKEWORD(1,1)
+	WORD wHighVersion：这个DLL能够支持的Windows Sockets规范的最高版本。通常它与wVersion相同。
+　　char szDescription[WSADESCRIPTION_LEN+1]：以null结尾的ASCII字符串，Windows Sockets DLL将对Windows Sockets实现的描述拷贝到这个字符串中，包括制造商标识。
+  文本（最多可以有256个字符）可以包含任何字符，但是要注意不能包含控制字符和格式字符，应用程序对其最可能的使用方式是把它（可能被截断）显示在在状态信息中。
+　　char szSystemStatus[WSASYSSTATUS_LEN+1]：以null结尾的ASCII字符串，Windows Sockets DLL把有关的状态或配置信息拷贝到该字符串中。
+  Windows Sockets DLL应当仅在这些信息对用户或支持人员有用时才使用它们，它不应被作为szDescription域的扩展。
+　　unsigned short iMaxSockets：单个进程能够打开的socket的最大数目。
+　　unsigned short iMaxUdpDg：Windows Sockets应用程序能够发送或接收的最大的用户数据包协议（UDP）的数据包大小，以字节为单位。如果实现方式没有限制，那么iMaxUdpDg为零。
+	
+	当一个应用程序调用WSAStartup函数时，操作系统根据请求的Socket版本来搜索相应的Socket库，
+	然后绑定找到的Socket库到该应用程序中。以后应用程序就可以调用所请求的Socket库中的其它Socket函数了。
+	该函数执行成功后返回0。
+	*/
+	if( WSAStartup(wVersionRequested, &wsaData)!=0)
 	{
-		return 0;
-	}
-	if (LOBYTE(wsaData.wVersion) != 1 || HIBYTE(wsaData.wVersion) != 1)
-	{
-		WSACleanup();
+		printf("ProcessInjection->GetSOCKET->WSAStartup(wVersionRequested, &wsaData)!=0");
 		return 0;
 	}
 	//**********************************************************
-	//第一步，创建套接字
-	SOCKET sockClient = socket(AF_INET, SOCK_STREAM, 0);
+	//第二步，创建套接字
+	SOCKET sockClient = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+	if (sockClient == INVALID_SOCKET)
+	{
+		printf("ProcessInjection->GetSOCKET->sockClient!");
+		return 0;
+	}
 	//定义套接字地址
 	SOCKADDR_IN addrSrv;
-	inet_pton(AF_INET, addr, (void*)&addrSrv.sin_addr.S_un.S_addr);
-	//addrSrv.sin_addr.S_un.S_addr = inet_addr("127.0.0.1");  //获取服务器IP地址,inet_addr()将IP地址转为点分十进制的格式
+	//vs2017在进行地址转换的时候要用这个函数，如果要设置INADDR_ANY，即允许任何地址加入，可以用下面那条语句。
+	inet_pton(AF_INET, addr, (void*)&addrSrv.sin_addr.S_un.S_addr);//原函数
+	//addrSrv.sin_addr.S_un.S_addr = inet_addr("127.0.0.1"/INADDR_ANY);  //获取服务器IP地址,inet_addr()将IP地址转为点分十进制的格式
+	
+	
 	addrSrv.sin_family = AF_INET;
 	//sin_family 表示地址族，对于IP地址，sin_family成员将一直是AF_INET
 	addrSrv.sin_port = htons(port);
 	//连接服务器
-	//      connect(sockClient,(SOCKADDR*)&addrSrv,sizeof(SOCKADDR));
-	if (connect(sockClient, (SOCKADDR*)&addrSrv, sizeof(SOCKADDR)) != 0)
-	{
-		//MessageBox("连接失败");
-		//return;
-		printf("error\n");
+	if (connect(sockClient, (sockaddr *)&addrSrv, sizeof(addrSrv)) == SOCKET_ERROR)
+	{  //连接失败 
+		printf("ProcessInjection->GetSOCKET->connect");
+		closesocket(sockClient);
 		return 0;
 	}
-	else
-	{
-		printf("success\n");
-	}
+	
 	return sockClient;
 }
 /*dllName是DLL的名字，szExeName是可执行程序的名字*/
@@ -287,7 +304,7 @@ DWORD ClientServerStateThreadMethod(LPVOID pParam)
 				std::cout << "ProcessInjection->ClientThreadMethod->InjectProcess" << std::endl;
 			}
 
-			sockClient = GetSOCKET(myData->addr, myData->port);
+			//sockClient = GetSOCKET(myData->addr, myData->port);
 			indexNumber = 1;
 			readyState = 1;
 			continue;

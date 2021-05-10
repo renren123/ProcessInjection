@@ -353,7 +353,10 @@ int main(int argc, char* argv[])
 
 	//DLL必须和应用程序在同一文件夹
 	std::string dllName = "TestDll.dll";
-	std::string proName = "notepad.exe";
+
+	//std::string proName = "notepad.exe";
+	std::string proName = "Test.exe";
+
 	const char * addr = "127.0.0.1";
 	u_short port=6000;
 
@@ -387,9 +390,16 @@ int main(int argc, char* argv[])
 			);
 
 		// 等待LoadLibraryA加载完毕
-		while (DWORD resultForThread = WaitForSingleObject(clientServerStateThread, INFINITE) != WAIT_OBJECT_0)
+		if (clientServerStateThread != NULL)
 		{
-			std::cout << "ProcessInjection->main->resultForThread: " << resultForThread << std::endl;
+			while (DWORD resultForThread = WaitForSingleObject(clientServerStateThread, INFINITE) != WAIT_OBJECT_0)
+			{
+				std::cout << "ProcessInjection->main->resultForThread: " << resultForThread << std::endl;
+			}
+		}
+		else
+		{
+			std::cout << " error, clientServerStateThread is null" << std::endl;
 		}
 
 		/*

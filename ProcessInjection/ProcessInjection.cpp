@@ -354,8 +354,8 @@ int main(int argc, char* argv[])
 	//DLL必须和应用程序在同一文件夹
 	std::string dllName = "TestDll.dll";
 
-	//std::string proName = "notepad.exe";
-	std::string proName = "Test.exe";
+	std::string proName = "notepad.exe";
+	//std::string proName = "Test.exe";
 
 	const char * addr = "127.0.0.1";
 	u_short port=6000;
